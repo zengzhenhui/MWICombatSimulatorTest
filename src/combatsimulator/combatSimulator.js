@@ -252,6 +252,8 @@ class CombatSimulator extends EventTarget {
             //console.log(enemy.hrid, "spawned");
         });
 
+        this.eventQueue.clearEventsOfType(AbilityCastEndEvent.type);
+
         this.startAttacks();
     }
 
@@ -457,7 +459,7 @@ class CombatSimulator extends EventTarget {
 
         if (this.enemies && !this.enemies.some((enemy) => enemy.combatDetails.currentHitpoints > 0)) {
             this.eventQueue.clearEventsOfType(AutoAttackEvent.type);
-            this.eventQueue.clearEventsOfType(AbilityCastEndEvent.type);
+            // this.eventQueue.clearEventsOfType(AbilityCastEndEvent.type);
             let enemyRespawnEvent = new EnemyRespawnEvent(this.simulationTime + ENEMY_RESPAWN_INTERVAL);
             this.eventQueue.addEvent(enemyRespawnEvent);
             this.enemies = null;
@@ -495,7 +497,7 @@ class CombatSimulator extends EventTarget {
                 this.eventQueue.addEvent(combatStartEvent);
             } else {
                 this.eventQueue.clearEventsOfType(AutoAttackEvent.type);
-                this.eventQueue.clearEventsOfType(AbilityCastEndEvent.type);
+                // this.eventQueue.clearEventsOfType(AbilityCastEndEvent.type);
             }
             // console.log("All Players died");
             encounterEnded = true;
@@ -506,6 +508,10 @@ class CombatSimulator extends EventTarget {
     }
 
     addNextAttackEvent(source) {
+        if (this.eventQueue.getMatching((event) => event.type == AbilityCastEndEvent.type && event.source == source)) {
+            return;
+        }
+        
         let target;
         let friendlies;
         let enemies;
@@ -520,24 +526,31 @@ class CombatSimulator extends EventTarget {
         }
 
         let usedAbility = false;
+        let skipNextAbility = false;
 
         source.abilities
             .filter((ability) => ability != null)
             .forEach((ability) => {
-                if (!usedAbility && ability.shouldTrigger(this.simulationTime, source, target, friendlies, enemies) && this.canUseAbility(source, ability, true)) {
-                    let castDuration = ability.castDuration;
-                    castDuration /= (1 + source.combatDetails.combatStats.castSpeed)
-                    let abilityCastEndEvent = new AbilityCastEndEvent(this.simulationTime + castDuration, source, ability);
-                    this.eventQueue.addEvent(abilityCastEndEvent);
-                    /*-if (source.isPlayer) {
-                        let haste = source.combatDetails.combatStats.abilityHaste;
-                        let cooldownDuration = ability.cooldownDuration;
-                        if (haste > 0) {
-                            cooldownDuration = cooldownDuration * 100 / (100 + haste);
-                        }
-                        // console.log((this.simulationTime / 1000000000) + " Casting " + ability.hrid + " Cast time " + (castDuration / 1e9) + " Off CD at " + ((this.simulationTime + cooldownDuration + castDuration) / 1e9) + " CD " + ((cooldownDuration) / 1e9));
-                    }*/
-                    usedAbility = true;
+                if (!usedAbility && !skipNextAbility && ability.shouldTrigger(this.simulationTime, source, target, friendlies, enemies)) {
+                    if (!this.canUseAbility(source, ability, true)) {
+                        skipNextAbility = true;
+                    }
+
+                    if (!skipNextAbility) {
+                        let castDuration = ability.castDuration;
+                        castDuration /= (1 + source.combatDetails.combatStats.castSpeed)
+                        let abilityCastEndEvent = new AbilityCastEndEvent(this.simulationTime + castDuration, source, ability);
+                        this.eventQueue.addEvent(abilityCastEndEvent);
+                        /*-if (source.isPlayer) {
+                            let haste = source.combatDetails.combatStats.abilityHaste;
+                            let cooldownDuration = ability.cooldownDuration;
+                            if (haste > 0) {
+                                cooldownDuration = cooldownDuration * 100 / (100 + haste);
+                            }
+                            // console.log((this.simulationTime / 1000000000) + " Casting " + ability.hrid + " Cast time " + (castDuration / 1e9) + " Off CD at " + ((this.simulationTime + cooldownDuration + castDuration) / 1e9) + " CD " + ((cooldownDuration) / 1e9));
+                        }*/
+                        usedAbility = true;
+                    }
                 }
             });
 
@@ -545,6 +558,9 @@ class CombatSimulator extends EventTarget {
             return;
         }
 
+        if (!enemies) {
+            return;
+        }
 
         if (!source.isBlinded) {
             let autoAttackEvent = new AutoAttackEvent(
